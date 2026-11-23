@@ -1,0 +1,6 @@
+{
+  "name": "AlgebraLab",
+  "description": "Interactive Abstract Algebra Learning & Computational Platform for Cosets, Normal Subgroups, and Quotient Groups.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
