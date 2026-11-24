@@ -1,6 +1,7 @@
-import { CheckCircle2, Download, Play, RefreshCw, RotateCcw, Search, ShieldCheck } from 'lucide-react';
+import { CheckCircle2, Download, GitBranch, Grid3X3, Play, RefreshCw, RotateCcw, Search, ShieldCheck } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { convertUnicodeMathToLatex, MathFormula, MathText } from '../components/MathFormula.tsx';
+import { VisualCheatSheetD3 } from '../components/VisualCheatSheetD3.tsx';
 import {
   buildAlternatingGroup,
   buildDihedralGroup,
@@ -209,6 +210,7 @@ export function MistakeNotebookPage({
 
 export function FormulaLibraryPage() {
   const [query, setQuery] = useState('');
+  const [activeTab, setActiveTab] = useState<'formulas' | 'cheatsheet'>('formulas');
   const filtered = FORMULA_LIBRARY.filter(
     (f) =>
       f.name.toLowerCase().includes(query.toLowerCase()) ||
@@ -221,38 +223,74 @@ export function FormulaLibraryPage() {
       <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 flex flex-wrap items-center justify-between gap-4">
         <div>
           <h1 className="text-xl font-bold text-slate-900 dark:text-slate-100">
-            Formula Library
+            Formula Library & Visual Cheat Sheet
           </h1>
           <p className="text-xs text-slate-500 dark:text-slate-400">
-            Searchable theorems and identities for Cosets, Lagrange, Normality, Class Equations & Quotient Classification
+            Searchable theorems, identities, and interactive D3.js group-structure diagrams
           </p>
         </div>
-        <div className="relative w-full sm:w-72">
-          <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
-          <input
-            type="text"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search formulas…"
-            className="w-full h-9 pl-9 pr-3 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs"
-          />
+
+        <div className="flex flex-wrap items-center gap-3 w-full sm:w-auto justify-between sm:justify-end">
+          <div className="flex items-center gap-1 p-1 rounded-lg bg-slate-100 dark:bg-slate-800">
+            <button
+              type="button"
+              onClick={() => setActiveTab('formulas')}
+              className={`px-3 py-1.5 rounded-md text-xs font-medium inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors ${
+                activeTab === 'formulas'
+                  ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 shadow-xs'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+              }`}
+            >
+              <Grid3X3 className="w-3.5 h-3.5" />
+              Formulas & Identities
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('cheatsheet')}
+              className={`px-3 py-1.5 rounded-md text-xs font-medium inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors ${
+                activeTab === 'cheatsheet'
+                  ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 shadow-xs'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+              }`}
+            >
+              <GitBranch className="w-3.5 h-3.5" />
+              Visual Cheat Sheet
+            </button>
+          </div>
+
+          {activeTab === 'formulas' && (
+            <div className="relative w-full sm:w-64">
+              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+              <input
+                type="text"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Search formulas…"
+                className="w-full h-9 pl-9 pr-3 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs"
+              />
+            </div>
+          )}
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {filtered.map((f) => (
-          <div key={f.id} className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 space-y-2">
-            <div className="text-xs text-blue-700 dark:text-blue-400 font-medium">{f.topic}</div>
-            <div className="text-base font-semibold text-slate-900 dark:text-slate-100">{f.name}</div>
-            <div className="p-3 rounded-lg bg-slate-50 dark:bg-slate-800/60">
-              <MathFormula latex={f.latex} display />
+      {activeTab === 'cheatsheet' ? (
+        <VisualCheatSheetD3 />
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {filtered.map((f) => (
+            <div key={f.id} className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 space-y-2">
+              <div className="text-xs text-blue-700 dark:text-blue-400 font-medium">{f.topic}</div>
+              <div className="text-base font-semibold text-slate-900 dark:text-slate-100">{f.name}</div>
+              <div className="p-3 rounded-lg bg-slate-50 dark:bg-slate-800/60">
+                <MathFormula latex={f.latex} display />
+              </div>
+              <p className="text-xs text-slate-600 dark:text-slate-400">
+                <MathText text={f.explanation} />
+              </p>
             </div>
-            <p className="text-xs text-slate-600 dark:text-slate-400">
-              <MathText text={f.explanation} />
-            </p>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

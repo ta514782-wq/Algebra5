@@ -9,6 +9,8 @@ import {
   FileSpreadsheet,
   FlaskConical,
   GitBranch,
+  GitCompareArrows,
+  Globe,
   GraduationCap,
   HelpCircle,
   Home,
@@ -39,7 +41,9 @@ import { Artifact2Page } from './pages/Artifact2Page.tsx';
 import { ComputationalLabPage } from './pages/ComputationalLabPages.tsx';
 import { DashboardPage, StudentProgressState } from './pages/DashboardPage.tsx';
 import { LearnMathPage } from './pages/LearnMathPage.tsx';
-import { MockExamPage, PracticeMcqsPage } from './pages/PracticeAndExamPages.tsx';
+import { PracticeMcqsPage, MockExamPage } from './pages/PracticeAndExamPages.tsx';
+import { RealWorldScenarioId } from './core/realWorldEngine.ts';
+import { RealWorldPage } from './pages/RealWorldPage.tsx';
 import {
   AboutPage,
   FormulaLibraryPage,
@@ -71,6 +75,7 @@ const NAV_GROUPS = [
     items: [
       { id: 'dashboard', label: 'Dashboard', icon: Home },
       { id: 'artifact2', label: 'Artifact 2 Exercises', icon: Compass },
+      { id: 'real-world', label: 'Real-World Problems', icon: Globe },
       { id: 'learn', label: 'Learn Mathematics', icon: BookOpen },
     ],
   },
@@ -89,6 +94,7 @@ const NAV_GROUPS = [
       { id: 'sylow', label: 'Sylow & Cayley Lab', icon: Zap },
       { id: 'classification', label: 'Quotient Classification', icon: GraduationCap },
       { id: 'conjugacy', label: 'Conjugacy Classes', icon: Orbit },
+      { id: 'compare', label: 'Group Comparison', icon: GitCompareArrows },
     ],
   },
   {
@@ -154,6 +160,7 @@ export default function App() {
   const [activePage, setActivePage] = useState<string>(initialUrlState.page);
   const [learnTopicId, setLearnTopicId] = useState<string | undefined>(undefined);
   const [practiceTopicId, setPracticeTopicId] = useState<string | undefined>(undefined);
+  const [realWorldScenarioId, setRealWorldScenarioId] = useState<RealWorldScenarioId | undefined>(undefined);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [darkMode, setDarkMode] = useState(false);
   const [presenterOpen, setPresenterOpen] = useState(false);
@@ -291,6 +298,7 @@ export default function App() {
   const handleNavigate = (page: string, topicId?: string) => {
     if (page === 'learn' && topicId) setLearnTopicId(topicId);
     if (page === 'practice') setPracticeTopicId(topicId);
+    if (page === 'real-world' && topicId) setRealWorldScenarioId(topicId as RealWorldScenarioId);
     setActivePage(page);
     setMobileMenuOpen(false);
   };
@@ -538,6 +546,17 @@ export default function App() {
             />
           )}
 
+          {activePage === 'real-world' && (
+            <RealWorldPage
+              initialScenarioId={realWorldScenarioId}
+              onLoadIntoLab={(g, sub, target) => {
+                setActiveGroup(g);
+                setSelectedSubset(sub);
+                handleNavigate(target);
+              }}
+            />
+          )}
+
           {activePage === 'learn' && (
             <LearnMathPage
               initialTopicId={learnTopicId}
@@ -578,7 +597,8 @@ export default function App() {
             activePage === 'homomorphism' ||
             activePage === 'sylow' ||
             activePage === 'classification' ||
-            activePage === 'conjugacy') && (
+            activePage === 'conjugacy' ||
+            activePage === 'compare') && (
             <ComputationalLabPage
               mode={activePage}
               group={activeGroup}
@@ -588,6 +608,7 @@ export default function App() {
                 setSelectedSubset(sub);
               }}
               onSubsetChange={setSelectedSubset}
+              onNavigate={handleNavigate}
             />
           )}
 

@@ -787,7 +787,7 @@ export const LEARNING_TOPICS: LearningTopic[] = [
         steps: [
           'Compute ord(1, 2) in ℤ₂ × ℤ₆: ord(1 in ℤ₂) = 2, ord(2 in ℤ₆) = 3 ⇒ lcm(2, 3) = 6.',
           'Thus |⟨(1, 2)⟩| = 6, and |(ℤ₂ × ℤ₆)/⟨(1, 2)⟩| = 12 / 6 = 2.',
-          'Wait! Check the subgroup elements carefully: 1·(1,2)=(1,2), 2·(1,2)=(0,4), 3·(1,2)=(1,0), 4·(1,2)=(0,2), 5·(1,2)=(1,4), 6·(1,2)=(0,0).',
+          'Listing all elements of H = ⟨(1, 2)⟩ explicitly: 1·(1,2) = (1,2), 2·(1,2) = (0,4), 3·(1,2) = (1,0), 4·(1,2) = (0,2), 5·(1,2) = (1,4), and 6·(1,2) = (0,0).',
           'Any group of prime order 2 is cyclic, so (ℤ₂ × ℤ₆)/⟨(1, 2)⟩ ≅ ℤ₂!',
         ],
         answer: '(ℤ₂ × ℤ₆)/⟨(1, 2)⟩ ≅ ℤ₂ (cyclic of order 2).',

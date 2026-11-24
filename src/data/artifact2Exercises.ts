@@ -282,7 +282,7 @@ export const ARTIFACT2_EXERCISES: Artifact2Exercise[] = [
       'Multiples of (1, 2): (1,2), (0,4), (1,0), (0,2), (1,4), (0,0), so |H| = 6.',
       'Since G is abelian, H ◁ G automatically.',
       '|G/H| = |G| / |H| = 12 / 6 = 2.',
-      'Cosets are H and (0,1) + H. Since 2·(0,1) = (0,2) ∉ H? Wait: (0,2) IS in H (4·(1,2) = (0,2))! Thus ord((0,1)+H) = 2.',
+      'Cosets are H and (0,1) + H. Checking the order of (0,1) + H: 1·(0,1) = (0,1) ∉ H, while 2·(0,1) = (0,2) = 4·(1,2) ∈ H, so ord((0,1) + H) = 2.',
       'Any group of order 2 is cyclic, so (ℤ₂ × ℤ₆)/⟨(1,2)⟩ ≅ ℤ₂.',
     ],
     finalResult: '(ℤ₂ × ℤ₆)/⟨(1, 2)⟩ has order 2 and is isomorphic to ℤ₂ (invariant factor [2]).',

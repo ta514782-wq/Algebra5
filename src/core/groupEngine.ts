@@ -714,17 +714,12 @@ export function getPresetSubgroups(group: FiniteGroup): NamedSubgroup[] {
         id: 'a4_in_s4',
         name: 'A₄ (Alternating subgroup, order 12, Normal)',
         latexName: 'A_4',
-        elements: group.elements
-          .map((_, i) => i)
-          .filter((i) => !group.elements[i].includes('(') || group.orders[i] !== 2 && group.orders[i] !== 4 || group.elements[i].includes(')('))
-          .slice(0, 12), // Wait: let's compute A_4 exactly using generators (1 2 3) and (1 2)(3 4)!
+        elements: generateSubgroupFromElements(group, [
+          idx('(1 2 3)'),
+          idx('(1 2)(3 4)'),
+        ]),
       }
     );
-    // Replace A_4 accurately via generators
-    subs[subs.length - 1].elements = generateSubgroupFromElements(group, [
-      idx('(1 2 3)'),
-      idx('(1 2)(3 4)'),
-    ]);
     subs.push({
       id: 's3_in_s4',
       name: 'Stab(4) ≅ S₃ (Non-normal, order 6)',
@@ -751,15 +746,13 @@ export function getPresetSubgroups(group: FiniteGroup): NamedSubgroup[] {
     );
   } else if (group.id === 'Z2xZ6') {
     const idx = (lbl: string) => group.elements.indexOf(lbl);
+    const gen12 = generateSubgroupFromElements(group, [idx('(1,2)')]);
     subs.push({
       id: 'gen_1_2',
-      name: '⟨(1,2)⟩ = {(0,0), (1,2), (0,4), (1,0), (0,2), (1,4)}? Wait: ord(1,2) in Z₂×Z₆ is lcm(2,3)=6',
+      name: `⟨(1,2)⟩ (Order ${gen12.length})`,
       latexName: '\\langle (1,2) \\rangle',
-      elements: generateSubgroupFromElements(group, [idx('(1,2)')]),
+      elements: gen12,
     });
-    // Clean up display name dynamically
-    const subGen = subs[subs.length - 1];
-    subGen.name = `⟨(1,2)⟩ (Order ${subGen.elements.length})`;
   } else {
     // Add non-trivial cyclic subgroups (up to 4 distinct)
     const seen = new Set<string>([subs[0].elements.join(',')]);

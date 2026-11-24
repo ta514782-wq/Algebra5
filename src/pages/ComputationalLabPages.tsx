@@ -16,6 +16,7 @@ import { calculateNormalizer } from '../core/normalizerEngine.ts';
 import { buildQuotientGroup } from '../core/quotientEngine.ts';
 import { FirstIsomorphismPanel } from '../components/FirstIsomorphismPanel.tsx';
 import { DihedralPolygonVisualizer, PermutationActionVisualizer } from '../components/GeometryVisuals.tsx';
+import { GroupComparisonPanel } from '../components/GroupComparisonPanel.tsx';
 import { GroupSelectorBar } from '../components/GroupSelectorBar.tsx';
 import { MathFormula, MathText } from '../components/MathFormula.tsx';
 import {
@@ -47,11 +48,13 @@ interface LabProps {
     | 'homomorphism'
     | 'sylow'
     | 'classification'
-    | 'conjugacy';
+    | 'conjugacy'
+    | 'compare';
   group: FiniteGroup;
   selectedSubset: number[];
   onGroupChange: (g: FiniteGroup, initialSubset: number[]) => void;
   onSubsetChange: (indices: number[]) => void;
+  onNavigate?: (page: string) => void;
 }
 
 export function ComputationalLabPage({
@@ -60,6 +63,7 @@ export function ComputationalLabPage({
   selectedSubset,
   onGroupChange,
   onSubsetChange,
+  onNavigate,
 }: LabProps) {
   const [converseDivisor, setConverseDivisor] = useState<number>(6);
   const [activeOp, setActiveOp] = useState<ActiveOperationHighlight | null>(null);
@@ -71,7 +75,7 @@ export function ComputationalLabPage({
 
   return (
     <div className="space-y-6">
-      {mode !== 'homomorphism' && (
+      {mode !== 'homomorphism' && mode !== 'compare' && (
         <GroupSelectorBar
           group={group}
           selectedSubset={selectedSubset}
@@ -111,6 +115,14 @@ export function ComputationalLabPage({
       {mode === 'conjugacy' && <ConjugacyPanel group={group} />}
       {mode === 'homomorphism' && <FirstIsomorphismPanel activeLabGroup={group} />}
       {mode === 'sylow' && <SylowCayleyPanel group={group} onSelectSubgroup={onSubsetChange} />}
+      {mode === 'compare' && (
+        <GroupComparisonPanel
+          onOpenInExplorer={(g, sub) => {
+            onGroupChange(g, sub);
+            onNavigate?.('group-explorer');
+          }}
+        />
+      )}
     </div>
   );
 }

@@ -23,6 +23,7 @@ import {
 } from '../src/core/groupEngine.ts';
 import { validateSubgroup, verifyGroupAxioms } from '../src/core/groupValidation.ts';
 import { parseSubsetExpression } from '../src/core/expressionParser.ts';
+import { compareTwoGroups } from '../src/core/groupComparisonEngine.ts';
 import { analyzeHomomorphism, buildPresetHomomorphisms } from '../src/core/homomorphismEngine.ts';
 import { analyzeCosetBlockConsistency, findGroupIsomorphism } from '../src/core/isomorphismEngine.ts';
 import { getLabChallenges, gradeLabChallenge } from '../src/core/labChallenges.ts';
@@ -34,6 +35,18 @@ import { buildQuotientGroup } from '../src/core/quotientEngine.ts';
 import { solveGroupProblem } from '../src/core/solverEngine.ts';
 import { analyzeCayleyTheorem, analyzeSylowTheorems } from '../src/core/sylowAndCayleyEngine.ts';
 import { buildVerifiedEngineTutorReply } from '../src/core/tutorEngineFallback.ts';
+import {
+  simulateErrorCorrectingCode,
+  simulateMolecularSymmetry,
+  simulateNetworkQuotient,
+  simulateQuantumCommutation,
+  simulateShiftScheduling,
+  simulateSignalSynchronization,
+} from '../src/core/realWorldEngine.ts';
+import {
+  buildVisualCheatSheetData,
+  CHEAT_SHEET_GROUPS,
+} from '../src/core/visualCheatSheetEngine.ts';
 import { runLiveVerificationChecks } from '../src/core/verificationCertificate.ts';
 import { ARTIFACT2_EXERCISES } from '../src/data/artifact2Exercises.ts';
 import { LEARNING_TOPICS } from '../src/data/topics.ts';
@@ -493,6 +506,103 @@ test('MathText word boundaries and verified deterministic tutor fallback answers
     sub
   );
   assert.ok(normCentReply.includes('Normalizer') && normCentReply.includes('Centralizer') && normCentReply.includes('C_{'));
+});
+
+test('Real-World problem simulators react accurately to variable parameters', () => {
+  const err0 = simulateErrorCorrectingCode(1, 0);
+  assert.equal(err0.syndrome[0], 0);
+  assert.equal(err0.singleBitCorrected, true);
+  assert.equal(err0.allCosets.length, 4);
+  const err2 = simulateErrorCorrectingCode(1, 2);
+  assert.equal(err2.receivedLabel, '(1,0,1)');
+  assert.equal(err2.cosetLeaderLabel, '(0,1,0)');
+  assert.equal(err2.recoveredLabel, '(1,1,1)');
+  assert.equal(err2.singleBitCorrected, true);
+  assert.equal(err2.allCosets.filter((c) => c.isMatched).length, 1);
+
+  const molD4 = simulateMolecularSymmetry(4, 'reflection-s');
+  assert.equal(molD4.isNormal, false);
+  assert.equal(molD4.distinctConjugateCount, 2);
+  assert.equal(molD4.rotationAngleDeg, 90);
+  const molRot = simulateMolecularSymmetry(6, 'full-rotations');
+  assert.equal(molRot.isNormal, true);
+  assert.equal(molRot.distinctConjugateCount, 1);
+
+  const shiftFull = simulateShiftScheduling(12, 5);
+  assert.equal(shiftFull.coversAllSlots, true);
+  assert.equal(shiftFull.teamCount, 1);
+  assert.equal(shiftFull.slotTeamMap.length, 12);
+  const shiftPart = simulateShiftScheduling(12, 4);
+  assert.equal(shiftPart.cycleLength, 3);
+  assert.equal(shiftPart.teamCount, 4);
+  assert.equal(shiftPart.lagrangeVerified, true);
+
+  const commQ8 = simulateQuantumCommutation('Q_8', 'i');
+  assert.equal(commQ8.centreOrder, 2);
+  assert.equal(commQ8.centralizerOrder, 4);
+  assert.equal(commQ8.allOperations.length, 8);
+  assert.equal(commQ8.allOperations.filter((o) => o.commutes).length, 4);
+
+  const netGood = simulateNetworkQuotient('S4-switch', 'V4');
+  assert.equal(netGood.canRouteDeterministic, true);
+  assert.equal(netGood.quotientOrder, 6);
+  assert.equal(netGood.cosetPartitions.length, 6);
+  const netBad = simulateNetworkQuotient('S4-switch', 'swap');
+  assert.equal(netBad.canRouteDeterministic, false);
+  assert.ok(netBad.conflictWitness);
+
+  const sigCyclic = simulateSignalSynchronization(3, 4);
+  assert.equal(sigCyclic.isSingleMasterClock, true);
+  assert.equal(sigCyclic.maxSimultaneousOrder, 12);
+  assert.equal(sigCyclic.orbitCells.length, 12);
+  const sigSplit = simulateSignalSynchronization(2, 6);
+  assert.equal(sigSplit.isSingleMasterClock, false);
+  assert.equal(sigSplit.maxSimultaneousOrder, 6);
+  assert.equal(sigSplit.orbitCells.length, 6);
+});
+
+test('Group Properties Comparison accurately compares isomorphic and non-isomorphic pairs', () => {
+  const D4 = buildDihedralGroup(4);
+  const Q8 = buildQuaternionGroup();
+  const cmpD4Q8 = compareTwoGroups(D4, Q8);
+  assert.equal(cmpD4Q8.summaryA.order, 8);
+  assert.equal(cmpD4Q8.summaryB.order, 8);
+  assert.equal(cmpD4Q8.summaryA.subgroupCount, 10);
+  assert.equal(cmpD4Q8.summaryB.subgroupCount, 6);
+  assert.equal(cmpD4Q8.summaryB.isHamiltonian, true);
+  assert.equal(cmpD4Q8.isomorphism.isomorphic, false);
+  assert.ok(cmpD4Q8.differingCount > 0);
+
+  const D3 = buildDihedralGroup(3);
+  const S3 = buildSymmetricGroup(3);
+  const cmpD3S3 = compareTwoGroups(D3, S3);
+  assert.equal(cmpD3S3.isomorphism.isomorphic, true);
+  assert.equal(cmpD3S3.summaryA.subgroupCount, cmpD3S3.summaryB.subgroupCount);
+  assert.equal(cmpD3S3.summaryA.normalSubgroupCount, cmpD3S3.summaryB.normalSubgroupCount);
+
+  const Z12 = buildCyclicGroup(12);
+  const Z2xZ6 = buildDirectProductCyclic([2, 6]);
+  const cmpZ12 = compareTwoGroups(Z12, Z2xZ6);
+  assert.equal(cmpZ12.summaryA.isCyclic, true);
+  assert.equal(cmpZ12.summaryB.isCyclic, false);
+  assert.equal(cmpZ12.isomorphism.isomorphic, false);
+});
+
+test('Visual Cheat Sheet engine builds verified Cayley cells, lattices, and conjugacy partitions', () => {
+  assert.equal(CHEAT_SHEET_GROUPS.length, 6);
+  for (const preset of CHEAT_SHEET_GROUPS) {
+    const group = preset.build();
+    const data = buildVisualCheatSheetData(group);
+    assert.equal(data.cayleyCells.length, group.order * group.order);
+    assert.equal(data.conjugacy.partitionVerified, true);
+    assert.ok(data.lattice.nodes.length >= 2);
+    if (group.isAbelian) {
+      assert.equal(data.nonCommutingPairsCount, 0);
+      assert.equal(data.normalSubgroupCount, data.lattice.nodes.length);
+    } else {
+      assert.ok(data.nonCommutingPairsCount > 0);
+    }
+  }
 });
 
 console.log(`\nALL ${passed} TEST SUITES PASSED!`);
