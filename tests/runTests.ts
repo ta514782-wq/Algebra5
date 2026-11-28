@@ -51,8 +51,15 @@ import { runLiveVerificationChecks } from '../src/core/verificationCertificate.t
 import { ARTIFACT2_EXERCISES } from '../src/data/artifact2Exercises.ts';
 import { LEARNING_TOPICS } from '../src/data/topics.ts';
 import { getVerifiedQuestionBank } from '../src/data/questionBank.ts';
+import {
+  buildStructuredProof,
+  PROOF_THEOREM_CATALOG,
+} from '../src/core/proofAssistantEngine.ts';
 import { splitNotebookSegments } from '../src/components/MathFormula.tsx';
 import { cayleyTableToLatex, solverSolutionToLatex } from '../src/utils/latexExport.ts';
+import { drawNonRepeatingSession } from '../src/utils/sessionSampling.ts';
+import { buildSidebarSearchIndex, searchSidebarIndex } from '../src/utils/sidebarSearch.ts';
+import { buildBreadcrumbTrail } from '../src/utils/breadcrumbs.ts';
 
 let passed = 0;
 function test(name: string, fn: () => void) {
@@ -603,6 +610,209 @@ test('Visual Cheat Sheet engine builds verified Cayley cells, lattices, and conj
       assert.ok(data.nonCommutingPairsCount > 0);
     }
   }
+});
+
+test('Proof Assistant Engine builds verified structured proofs across all 8 Algebra II theorems', () => {
+  assert.equal(PROOF_THEOREM_CATALOG.length, 8);
+  const D4 = buildDihedralGroup(4);
+  const H_r2 = generateSubgroupFromElements(D4, [D4.elements.indexOf('r²')]);
+  const H_s = generateSubgroupFromElements(D4, [D4.elements.indexOf('s')]);
+
+  for (const item of PROOF_THEOREM_CATALOG) {
+    const proofNormal = buildStructuredProof(item.id, D4, H_r2);
+    assert.ok(proofNormal.steps.length >= 4, `Theorem ${item.id} needs >= 4 steps`);
+    assert.ok(proofNormal.givenInfo.length >= 1);
+    assert.ok(proofNormal.requiredConclusion.length > 10);
+    if (item.id === 'ftfgag') {
+      assert.equal(proofNormal.liveInstantiation.applicable, false, 'FTFGAG must reject non-abelian D4');
+    } else {
+      assert.equal(proofNormal.liveInstantiation.applicable, true, `Theorem ${item.id} should instantiate on D4/<r^2>`);
+    }
+  }
+
+  // Non-normal H_s must make quotient-well-defined inapplicable
+  const badQuot = buildStructuredProof('quotient-well-defined', D4, H_s);
+  assert.equal(badQuot.liveInstantiation.applicable, false);
+
+  // FTFGAG applies cleanly on Z_2 x Z_6
+  const Z2Z6 = buildDirectProductCyclic([2, 6]);
+  const ftfgagProof = buildStructuredProof('ftfgag', Z2Z6, [0]);
+  assert.equal(ftfgagProof.liveInstantiation.applicable, true);
+  assert.ok(ftfgagProof.liveInstantiation.details.some((d) => d.includes('ℤ_2') && d.includes('ℤ_6')));
+});
+
+test('Coset membership equivalence x ∈ gH ⇔ g⁻¹x ∈ H and x ∈ Hg ⇔ xg⁻¹ ∈ H holds exhaustively on D_4 and S_3', () => {
+  const groups = [
+    { group: buildDihedralGroup(4), gen: 's' },
+    { group: buildSymmetricGroup(3), gen: '(1 2)' },
+  ];
+  for (const { group, gen } of groups) {
+    const H = generateSubgroupFromElements(group, [group.elements.indexOf(gen)]);
+    const hSet = new Set(H);
+    const cosets = analyzeCosets(group, H);
+    assert.equal(cosets.valid, true);
+    for (let g = 0; g < group.order; g++) {
+      const gInv = group.inverses[g];
+      const leftSet = new Set(cosets.leftCosets[g].elementIndices);
+      const rightSet = new Set(cosets.rightCosets[g].elementIndices);
+      for (let x = 0; x < group.order; x++) {
+        const gInvX = group.table[gInv][x];
+        const xGInv = group.table[x][gInv];
+        assert.equal(leftSet.has(x), hSet.has(gInvX), `Left coset criterion failed for g=${g}, x=${x}`);
+        assert.equal(rightSet.has(x), hSet.has(xGInv), `Right coset criterion failed for g=${g}, x=${x}`);
+      }
+    }
+  }
+});
+
+test('Non-repeating MCQ session sampler draws strictly unseen batches until deck exhaustion', () => {
+  const bank = getVerifiedQuestionBank().slice(0, 25);
+  let seen = new Set<string>();
+
+  const s1 = drawNonRepeatingSession(bank, seen, 10);
+  assert.equal(s1.questions.length, 10);
+  assert.equal(s1.resetCycle, false);
+  seen = s1.nextSeenIds;
+  assert.equal(seen.size, 10);
+
+  const s2 = drawNonRepeatingSession(bank, seen, 10);
+  assert.equal(s2.questions.length, 10);
+  assert.equal(s2.resetCycle, false);
+  for (const q of s2.questions) {
+    assert.equal(s1.questions.some((prev) => prev.id === q.id), false, 'Second batch must not repeat first batch');
+  }
+  seen = s2.nextSeenIds;
+  assert.equal(seen.size, 20);
+
+  // Only 5 unseen left -> third draw of 10 includes the remaining 5 unseen and resets cleanly
+  const s3 = drawNonRepeatingSession(bank, seen, 10);
+  assert.equal(s3.questions.length, 10);
+  assert.equal(s3.resetCycle, true);
+  assert.equal(s3.unseenRemainingBeforeDraw, 5);
+  assert.equal(new Set(s3.questions.map((q) => q.id)).size, 10);
+});
+
+test('Sidebar search index covers labs, concepts, proofs, exercises, scenarios, formulas, glossary, and custom modules', () => {
+  const customTopic = {
+    ...LEARNING_TOPICS[0],
+    id: 'custom-orbit-stabilizer',
+    number: 8,
+    title: 'Orbit-Stabilizer Custom Seminar',
+    subtitle: 'Custom instructor module on group actions',
+    introduction: 'Explores orbits and stabilizers of group actions.',
+    objectives: ['Compute orbit sizes'],
+    definitions: [
+      {
+        term: 'Stabilizer',
+        latex: 'G_x = \\{g \\in G : g \\cdot x = x\\}',
+        explanation: 'Subgroup fixing a point',
+      },
+    ],
+    theorems: [],
+    formulas: [],
+    commonMistakes: [],
+  };
+
+  const baseIndex = buildSidebarSearchIndex();
+  const extendedIndex = buildSidebarSearchIndex([customTopic]);
+
+  assert.equal(extendedIndex.length, baseIndex.length + 1);
+  assert.equal(baseIndex.some((item) => item.category === 'Lab' && item.targetPage === 'sylow'), true);
+  assert.equal(
+    baseIndex.filter((item) => item.category === 'Proof').length,
+    PROOF_THEOREM_CATALOG.length + 1
+  );
+  assert.equal(
+    baseIndex.filter((item) => item.category === 'Exercise').length,
+    ARTIFACT2_EXERCISES.length
+  );
+  assert.equal(
+    baseIndex.filter((item) => item.category === 'Concept').length,
+    LEARNING_TOPICS.length
+  );
+
+  assert.deepEqual(searchSidebarIndex(extendedIndex, '   '), []);
+
+  const sylowHits = searchSidebarIndex(extendedIndex, 'sylow');
+  assert.equal(sylowHits.length > 0, true);
+  assert.equal(sylowHits.some((item) => item.targetPage === 'sylow'), true);
+  assert.equal(sylowHits.some((item) => item.category === 'Proof' && item.theoremId !== undefined), true);
+
+  const a4Hits = searchSidebarIndex(extendedIndex, 'A4 order 6');
+  assert.equal(a4Hits.some((item) => item.targetPage === 'lagrange' || item.targetPage === 'artifact2'), true);
+
+  const cheatSheetHits = searchSidebarIndex(extendedIndex, 'cheat sheet');
+  assert.equal(cheatSheetHits[0]?.targetPage, 'formulas');
+  assert.equal(cheatSheetHits[0]?.formulaTab, 'cheatsheet');
+
+  const customHits = searchSidebarIndex(extendedIndex, 'Orbit-Stabilizer');
+  assert.equal(customHits[0]?.targetPage, 'learn');
+  assert.equal(customHits[0]?.topicId, 'custom-orbit-stabilizer');
+
+  const glossaryHits = searchSidebarIndex(extendedIndex, 'Normal Subgroup');
+  assert.equal(glossaryHits.some((item) => item.category === 'Glossary' && item.targetPage === 'glossary'), true);
+});
+
+test('Breadcrumb trail builder maps Home > Group > Page and optional sub-context accurately', () => {
+  const sampleNavGroups = [
+    {
+      label: 'Overview',
+      items: [
+        { id: 'dashboard', label: 'Dashboard' },
+        { id: 'learn', label: 'Learn Mathematics' },
+      ],
+    },
+    {
+      label: 'Computational Lab',
+      items: [
+        { id: 'group-explorer', label: 'Group Explorer' },
+        { id: 'cosets', label: 'Coset Visualizer' },
+      ],
+    },
+  ];
+
+  const cosetTrail = buildBreadcrumbTrail({
+    activePage: 'cosets',
+    navGroups: sampleNavGroups,
+  });
+  assert.deepEqual(
+    cosetTrail.map((s) => s.label),
+    ['Home', 'Computational Lab', 'Coset Visualizer']
+  );
+  assert.equal(cosetTrail[0].targetPage, 'dashboard');
+  assert.equal(cosetTrail[1].siblingItems?.length, 2);
+  assert.equal(cosetTrail[2].isCurrent, true);
+
+  const dashTrail = buildBreadcrumbTrail({
+    activePage: 'dashboard',
+    navGroups: sampleNavGroups,
+  });
+  assert.deepEqual(
+    dashTrail.map((s) => s.label),
+    ['Home', 'Dashboard']
+  );
+  assert.equal(dashTrail[1].isCurrent, true);
+
+  const learnTrail = buildBreadcrumbTrail({
+    activePage: 'learn',
+    navGroups: sampleNavGroups,
+    subLabel: "3. Cosets & Lagrange's Theorem",
+  });
+  assert.deepEqual(
+    learnTrail.map((s) => s.label),
+    ['Home', 'Overview', 'Learn Mathematics', "3. Cosets & Lagrange's Theorem"]
+  );
+  assert.equal(learnTrail[2].isCurrent, false);
+  assert.equal(learnTrail[3].isCurrent, true);
+
+  const unknownTrail = buildBreadcrumbTrail({
+    activePage: 'nonexistent',
+    navGroups: sampleNavGroups,
+  });
+  assert.deepEqual(
+    unknownTrail.map((s) => s.label),
+    ['Home', 'Dashboard']
+  );
 });
 
 console.log(`\nALL ${passed} TEST SUITES PASSED!`);

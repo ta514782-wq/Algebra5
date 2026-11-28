@@ -410,11 +410,14 @@ app.patch('/api/mistakes/:questionId', requireAuth, (req: AuthedRequest, res: Re
 // CUSTOM CONTENT & TEACHER/ADMIN PANEL
 // ============================================================================
 app.get('/api/content/custom', (_req: Request, res: Response) => {
+  const modules = db
+    .prepare('SELECT id, title, subtitle, estimated_minutes, introduction, objectives_json, common_mistakes_json, revision_notes_json, created_at FROM custom_modules ORDER BY created_at ASC')
+    .all();
   const notes = db.prepare('SELECT id, topic_id, title, content, created_at FROM custom_notes ORDER BY id DESC').all();
   const questions = db
     .prepare("SELECT id, topic_id, difficulty, question, options_json, correct_index, explanation, formula, status, created_at FROM custom_questions WHERE status = 'approved' ORDER BY created_at DESC")
     .all();
-  res.json({ notes, questions });
+  res.json({ modules, notes, questions });
 });
 
 app.get('/api/teacher/overview', requireTeacher, (_req: Request, res: Response) => {
@@ -430,6 +433,9 @@ app.get('/api/teacher/overview', requireTeacher, (_req: Request, res: Response) 
     )
     .all();
 
+  const customModules = db
+    .prepare('SELECT id, title, subtitle, estimated_minutes, introduction, objectives_json, common_mistakes_json, revision_notes_json, created_at FROM custom_modules ORDER BY created_at DESC')
+    .all();
   const customNotes = db
     .prepare('SELECT id, topic_id, title, content, created_at FROM custom_notes ORDER BY id DESC')
     .all();
@@ -446,7 +452,7 @@ app.get('/api/teacher/overview', requireTeacher, (_req: Request, res: Response) 
     )
     .all();
 
-  res.json({ students, customNotes, customQuestions, difficultMistakes });
+  res.json({ students, customModules, customNotes, customQuestions, difficultMistakes });
 });
 
 app.post('/api/teacher/notes', requireTeacher, (req: AuthedRequest, res: Response) => {
@@ -461,8 +467,94 @@ app.post('/api/teacher/notes', requireTeacher, (req: AuthedRequest, res: Respons
   res.json({ id: Number(result.lastInsertRowid) });
 });
 
+app.patch('/api/teacher/notes/:id', requireTeacher, (req: Request, res: Response) => {
+  const { topicId, title, content } = req.body ?? {};
+  if (typeof topicId !== 'string' || typeof title !== 'string' || typeof content !== 'string' || !title.trim() || !content.trim()) {
+    res.status(400).json({ error: 'Topic, title, and content are required.' });
+    return;
+  }
+  const result = db
+    .prepare('UPDATE custom_notes SET topic_id = ?, title = ?, content = ? WHERE id = ?')
+    .run(topicId.trim(), title.trim(), content.trim(), Number(req.params.id));
+  if (result.changes === 0) {
+    res.status(404).json({ error: 'Note not found.' });
+    return;
+  }
+  res.json({ ok: true });
+});
+
 app.delete('/api/teacher/notes/:id', requireTeacher, (req: Request, res: Response) => {
   db.prepare('DELETE FROM custom_notes WHERE id = ?').run(Number(req.params.id));
+  res.json({ ok: true });
+});
+
+app.post('/api/teacher/modules', requireTeacher, (req: AuthedRequest, res: Response) => {
+  const { title, subtitle, estimatedMinutes, introduction, objectives, commonMistakes, revisionNotes } = req.body ?? {};
+  if (typeof title !== 'string' || !title.trim() || typeof introduction !== 'string' || !introduction.trim()) {
+    res.status(400).json({ error: 'Module title and introduction are required.' });
+    return;
+  }
+  const slug = title
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/(^-|-$)/g, '')
+    .slice(0, 32);
+  const id = `custom-${slug || 'module'}-${Date.now().toString(36)}`;
+  const est = Math.max(5, Math.min(240, Number(estimatedMinutes) || 30));
+  const safeList = (v: unknown) =>
+    Array.isArray(v) ? v.map((x) => String(x).trim()).filter(Boolean) : [];
+  db.prepare(
+    `INSERT INTO custom_modules (id, title, subtitle, estimated_minutes, introduction, objectives_json, common_mistakes_json, revision_notes_json, author_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    id,
+    title.trim(),
+    typeof subtitle === 'string' ? subtitle.trim() : '',
+    est,
+    introduction.trim(),
+    JSON.stringify(safeList(objectives)),
+    JSON.stringify(safeList(commonMistakes)),
+    JSON.stringify(safeList(revisionNotes)),
+    req.user!.id
+  );
+  res.json({ id });
+});
+
+app.patch('/api/teacher/modules/:id', requireTeacher, (req: Request, res: Response) => {
+  const { title, subtitle, estimatedMinutes, introduction, objectives, commonMistakes, revisionNotes } = req.body ?? {};
+  if (typeof title !== 'string' || !title.trim() || typeof introduction !== 'string' || !introduction.trim()) {
+    res.status(400).json({ error: 'Module title and introduction are required.' });
+    return;
+  }
+  const est = Math.max(5, Math.min(240, Number(estimatedMinutes) || 30));
+  const safeList = (v: unknown) =>
+    Array.isArray(v) ? v.map((x) => String(x).trim()).filter(Boolean) : [];
+  const result = db
+    .prepare(
+      `UPDATE custom_modules
+       SET title = ?, subtitle = ?, estimated_minutes = ?, introduction = ?, objectives_json = ?, common_mistakes_json = ?, revision_notes_json = ?
+       WHERE id = ?`
+    )
+    .run(
+      title.trim(),
+      typeof subtitle === 'string' ? subtitle.trim() : '',
+      est,
+      introduction.trim(),
+      JSON.stringify(safeList(objectives)),
+      JSON.stringify(safeList(commonMistakes)),
+      JSON.stringify(safeList(revisionNotes)),
+      req.params.id
+    );
+  if (result.changes === 0) {
+    res.status(404).json({ error: 'Custom module not found.' });
+    return;
+  }
+  res.json({ ok: true });
+});
+
+app.delete('/api/teacher/modules/:id', requireTeacher, (req: Request, res: Response) => {
+  db.prepare('DELETE FROM custom_modules WHERE id = ?').run(req.params.id);
   res.json({ ok: true });
 });
 
@@ -500,6 +592,43 @@ app.post('/api/teacher/questions', requireTeacher, (req: AuthedRequest, res: Res
     return;
   }
   res.json({ inserted });
+});
+
+app.put('/api/teacher/questions/:id', requireTeacher, (req: Request, res: Response) => {
+  const { topicId, difficulty, question, options, correctIndex, explanation, formula } = req.body ?? {};
+  if (
+    typeof topicId !== 'string' ||
+    typeof question !== 'string' ||
+    !question.trim() ||
+    !Array.isArray(options) ||
+    options.length !== 4 ||
+    !Number.isInteger(Number(correctIndex)) ||
+    Number(correctIndex) < 0 ||
+    Number(correctIndex) > 3
+  ) {
+    res.status(400).json({ error: 'Valid topicId, question stem, 4 options, and correctIndex (0-3) are required.' });
+    return;
+  }
+  const diff = ['easy', 'medium', 'advanced'].includes(difficulty) ? difficulty : 'medium';
+  const result = db
+    .prepare(
+      'UPDATE custom_questions SET topic_id = ?, difficulty = ?, question = ?, options_json = ?, correct_index = ?, explanation = ?, formula = ? WHERE id = ?'
+    )
+    .run(
+      topicId.trim(),
+      diff,
+      question.trim(),
+      JSON.stringify(options.map((o: unknown) => String(o))),
+      Number(correctIndex),
+      String(explanation || 'Updated by instructor.'),
+      String(formula || ''),
+      req.params.id
+    );
+  if (result.changes === 0) {
+    res.status(404).json({ error: 'Question not found.' });
+    return;
+  }
+  res.json({ ok: true });
 });
 
 app.patch('/api/teacher/questions/:id', requireTeacher, (req: Request, res: Response) => {

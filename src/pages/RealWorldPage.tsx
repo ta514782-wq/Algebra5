@@ -30,6 +30,7 @@ import {
 
 interface RealWorldPageProps {
   initialScenarioId?: RealWorldScenarioId;
+  onScenarioChange?: (scenarioId: RealWorldScenarioId) => void;
   onLoadIntoLab: (group: FiniteGroup, subset: number[], targetPage: string) => void;
 }
 
@@ -44,7 +45,11 @@ const TEAM_COLORS = [
   { fill: '#4f46e5', text: '#ffffff', border: 'border-indigo-600', dot: 'bg-indigo-600' },
 ];
 
-export function RealWorldPage({ initialScenarioId, onLoadIntoLab }: RealWorldPageProps) {
+export function RealWorldPage({
+  initialScenarioId,
+  onScenarioChange,
+  onLoadIntoLab,
+}: RealWorldPageProps) {
   const [activeId, setActiveId] = useState<RealWorldScenarioId>(
     initialScenarioId ?? 'error-correcting-codes'
   );
@@ -166,7 +171,10 @@ export function RealWorldPage({ initialScenarioId, onLoadIntoLab }: RealWorldPag
             <button
               key={sc.id}
               type="button"
-              onClick={() => setActiveId(sc.id)}
+              onClick={() => {
+                setActiveId(sc.id);
+                onScenarioChange?.(sc.id);
+              }}
               className={`text-left p-4 rounded-xl border transition-colors ${
                 active
                   ? 'border-blue-600 bg-blue-50/70 dark:bg-blue-950/35'

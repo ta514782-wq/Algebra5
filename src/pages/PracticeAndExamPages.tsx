@@ -13,15 +13,9 @@ import { LightningChallengePanel } from '../components/LightningChallengePanel.t
 import { MathFormula, MathText } from '../components/MathFormula.tsx';
 import { getVerifiedQuestionBank, PracticeQuestion, QuestionDifficulty } from '../data/questionBank.ts';
 import { LEARNING_TOPICS } from '../data/topics.ts';
+import { drawNonRepeatingSession, shuffleArray } from '../utils/sessionSampling.ts';
 
-function shuffleArray<T>(arr: T[]): T[] {
-  const copy = [...arr];
-  for (let i = copy.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [copy[i], copy[j]] = [copy[j], copy[i]];
-  }
-  return copy;
-}
+export { drawNonRepeatingSession };
 
 interface PracticeMcqsPageProps {
   initialTopicId?: string;
@@ -63,18 +57,46 @@ export function PracticeMcqsPage({
   const [topicFilter, setTopicFilter] = useState<string>(initialTopicId || 'all');
   const [diffFilter, setDiffFilter] = useState<'all' | QuestionDifficulty>('all');
   const [timedMode, setTimedMode] = useState<boolean>(false);
-  const [sessionSeed, setSessionSeed] = useState<number>(1);
   const [reviewWrongOnly, setReviewWrongOnly] = useState(false);
 
-  const sessionQuestions = useMemo(() => {
-    void sessionSeed;
-    const pool = allQuestions.filter((q) => {
-      if (topicFilter !== 'all' && q.topicId !== topicFilter) return false;
-      if (diffFilter !== 'all' && q.difficulty !== diffFilter) return false;
-      return true;
+  const filteredPool = useMemo(
+    () =>
+      allQuestions.filter((q) => {
+        if (topicFilter !== 'all' && q.topicId !== topicFilter) return false;
+        if (diffFilter !== 'all' && q.difficulty !== diffFilter) return false;
+        return true;
+      }),
+    [allQuestions, topicFilter, diffFilter]
+  );
+
+  const [seenIds, setSeenIds] = useState<Set<string>>(() => new Set());
+  const [sessionDraw, setSessionDraw] = useState<{
+    questions: PracticeQuestion[];
+    resetCycle: boolean;
+    unseenRemainingBeforeDraw: number;
+  }>(() => {
+    const initial = drawNonRepeatingSession(
+      allQuestions.filter((q) => (!initialTopicId || initialTopicId === 'all' ? true : q.topicId === initialTopicId)),
+      new Set(),
+      10
+    );
+    return {
+      questions: initial.questions,
+      resetCycle: initial.resetCycle,
+      unseenRemainingBeforeDraw: initial.unseenRemainingBeforeDraw,
+    };
+  });
+
+  useEffect(() => {
+    setSeenIds((prev) => {
+      if (prev.size > 0) return prev;
+      const next = new Set(prev);
+      sessionDraw.questions.forEach((q) => next.add(q.id));
+      return next;
     });
-    return shuffleArray(pool).slice(0, 10);
-  }, [allQuestions, topicFilter, diffFilter, sessionSeed]);
+  }, []);
+
+  const sessionQuestions = sessionDraw.questions;
 
   const [currentIdx, setCurrentIdx] = useState(0);
   const [selectedAnswers, setSelectedAnswers] = useState<Record<number, number>>({});
@@ -87,11 +109,26 @@ export function PracticeMcqsPage({
     if (sessionFinished) return;
     const timer = setInterval(() => setElapsedSeconds((s) => s + 1), 1000);
     return () => clearInterval(timer);
-  }, [sessionFinished, sessionSeed]);
+  }, [sessionFinished, sessionQuestions]);
 
   const startNewSet = (newTopic?: string, newDiff?: 'all' | QuestionDifficulty) => {
+    const nextTopic = newTopic !== undefined ? newTopic : topicFilter;
+    const nextDiff = newDiff !== undefined ? newDiff : diffFilter;
     if (newTopic !== undefined) setTopicFilter(newTopic);
     if (newDiff !== undefined) setDiffFilter(newDiff);
+
+    const nextPool = allQuestions.filter((q) => {
+      if (nextTopic !== 'all' && q.topicId !== nextTopic) return false;
+      if (nextDiff !== 'all' && q.difficulty !== nextDiff) return false;
+      return true;
+    });
+    const drawn = drawNonRepeatingSession(nextPool, seenIds, 10);
+    setSeenIds(drawn.nextSeenIds);
+    setSessionDraw({
+      questions: drawn.questions,
+      resetCycle: drawn.resetCycle,
+      unseenRemainingBeforeDraw: drawn.unseenRemainingBeforeDraw,
+    });
     setCurrentIdx(0);
     setSelectedAnswers({});
     setCheckedMap({});
@@ -99,7 +136,6 @@ export function PracticeMcqsPage({
     setSessionFinished(false);
     setSavedNotice(false);
     setReviewWrongOnly(false);
-    setSessionSeed((s) => s + 1);
   };
 
   const currentQ = sessionQuestions[currentIdx];
@@ -255,7 +291,11 @@ export function PracticeMcqsPage({
           </button>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-[11px] font-mono text-slate-500 dark:text-slate-400 mr-1">
+            {filteredPool.filter((q) => !seenIds.has(q.id)).length}/{filteredPool.length} unseen
+            {sessionDraw.resetCycle ? ' · Deck cycled' : ''}
+          </span>
           <button
             type="button"
             onClick={() => {
@@ -374,19 +414,24 @@ export function PracticeMcqsPage({
             })}
           </div>
 
-          <button
-            type="button"
-            disabled={!isAuthenticated}
-            onClick={() => onToggleBookmark(currentQ.id, `${currentQ.topicTitle}: ${currentQ.question.slice(0, 60)}…`)}
-            className={`px-3 py-1.5 rounded-lg border text-xs font-medium inline-flex items-center gap-1.5 ${
-              bookmarkedQuestionIds.has(currentQ.id)
-                ? 'border-amber-500 bg-amber-50 dark:bg-amber-950/30 text-amber-800 dark:text-amber-300'
-                : 'border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-400 disabled:opacity-50'
-            }`}
-          >
-            <Bookmark className="w-3.5 h-3.5" />
-            {bookmarkedQuestionIds.has(currentQ.id) ? 'Bookmarked' : 'Bookmark'}
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs font-mono font-semibold text-slate-700 dark:text-slate-300 tabular-nums">
+              Score: {scoreCount}/{Object.keys(checkedMap).length} · Checked: {Object.keys(checkedMap).length}/{sessionQuestions.length}
+            </span>
+            <button
+              type="button"
+              disabled={!isAuthenticated}
+              onClick={() => onToggleBookmark(currentQ.id, `${currentQ.topicTitle}: ${currentQ.question.slice(0, 60)}…`)}
+              className={`px-3 py-1.5 rounded-lg border text-xs font-medium inline-flex items-center gap-1.5 ${
+                bookmarkedQuestionIds.has(currentQ.id)
+                  ? 'border-amber-500 bg-amber-50 dark:bg-amber-950/30 text-amber-800 dark:text-amber-300'
+                  : 'border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-400 disabled:opacity-50'
+              }`}
+            >
+              <Bookmark className="w-3.5 h-3.5" />
+              {bookmarkedQuestionIds.has(currentQ.id) ? 'Bookmarked' : 'Bookmark'}
+            </button>
+          </div>
         </div>
 
         <div className="space-y-1">
@@ -565,8 +610,11 @@ export function MockExamPage({
   const [answers, setAnswers] = useState<Record<number, number>>({});
   const [secondsLeft, setSecondsLeft] = useState(0);
   const [submitted, setSubmitted] = useState(false);
+  const [confirmSubmitOpen, setConfirmSubmitOpen] = useState(false);
+  const [activeJumpIdx, setActiveJumpIdx] = useState<number>(0);
 
   const submitExam = (qs: PracticeQuestion[], ansMap: Record<number, number>, remaining: number) => {
+    setConfirmSubmitOpen(false);
     setSubmitted(true);
     let score = 0;
     const breakdown: Record<string, { correct: number; total: number }> = {};
@@ -631,6 +679,16 @@ export function MockExamPage({
     setAnswers({});
     setSecondsLeft(timeMinutes * 60);
     setSubmitted(false);
+    setConfirmSubmitOpen(false);
+    setActiveJumpIdx(0);
+  };
+
+  const jumpToQuestion = (idx: number) => {
+    setActiveJumpIdx(idx);
+    const el = document.getElementById(`exam-q-${idx}`);
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
   };
 
   if (!examQuestions) {
@@ -703,45 +761,170 @@ export function MockExamPage({
   );
   const mins = Math.floor(secondsLeft / 60);
   const secs = secondsLeft % 60;
+  const unansweredIndices = examQuestions
+    .map((_, idx) => idx)
+    .filter((idx) => answers[idx] === undefined);
+
+  const topicBreakdownEntries = Object.entries(
+    examQuestions.reduce<Record<string, { correct: number; total: number }>>((acc, q, idx) => {
+      if (!acc[q.topicTitle]) acc[q.topicTitle] = { correct: 0, total: 0 };
+      acc[q.topicTitle].total++;
+      if (answers[idx] === q.correctIndex) acc[q.topicTitle].correct++;
+      return acc;
+    }, {})
+  );
 
   return (
     <div className="space-y-6">
-      <div className="sticky top-16 z-10 rounded-xl border border-slate-200 dark:border-slate-800 bg-white/95 dark:bg-slate-900/95 backdrop-blur-sm p-4 flex flex-wrap items-center justify-between gap-3">
-        <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-          Mock Exam ({examQuestions.length} Questions) · Answered {Object.keys(answers).length}/{examQuestions.length}
+      <div className="sticky top-16 z-10 rounded-xl border border-slate-200 dark:border-slate-800 bg-white/95 dark:bg-slate-900/95 backdrop-blur-sm p-4 space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+            Mock Exam ({examQuestions.length} Questions) · Answered {Object.keys(answers).length}/{examQuestions.length}
+          </div>
+          <div className="flex items-center gap-3">
+            <span className={`text-sm font-mono font-semibold tabular-nums ${secondsLeft < 60 && !submitted ? 'text-red-600' : 'text-slate-700 dark:text-slate-300'}`}>
+              {submitted ? 'Submitted' : `${mins}:${String(secs).padStart(2, '0')} remaining`}
+            </span>
+            {!submitted ? (
+              <button
+                type="button"
+                onClick={() => setConfirmSubmitOpen(true)}
+                className="px-4 py-2 rounded-lg bg-blue-700 hover:bg-blue-800 text-white text-xs font-medium whitespace-nowrap"
+              >
+                Review & Submit
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setExamQuestions(null)}
+                className="px-4 py-2 rounded-lg border border-slate-300 dark:border-slate-700 text-xs font-medium whitespace-nowrap"
+              >
+                New Exam
+              </button>
+            )}
+          </div>
         </div>
-        <div className="flex items-center gap-3">
-          <span className={`text-sm font-mono font-semibold tabular-nums ${secondsLeft < 60 && !submitted ? 'text-red-600' : 'text-slate-700 dark:text-slate-300'}`}>
-            {submitted ? 'Submitted' : `${mins}:${String(secs).padStart(2, '0')} remaining`}
-          </span>
-          {!submitted ? (
-            <button
-              type="button"
-              onClick={() => submitExam(examQuestions, answers, secondsLeft)}
-              className="px-4 py-2 rounded-lg bg-blue-700 hover:bg-blue-800 text-white text-xs font-medium"
-            >
-              Submit Exam
-            </button>
-          ) : (
-            <button
-              type="button"
-              onClick={() => setExamQuestions(null)}
-              className="px-4 py-2 rounded-lg border border-slate-300 dark:border-slate-700 text-xs font-medium"
-            >
-              New Exam
-            </button>
-          )}
+
+        {/* Question Navigation Palette */}
+        <div className="flex flex-wrap gap-1 pt-2 border-t border-slate-200 dark:border-slate-800">
+          {examQuestions.map((q, idx) => {
+            const isAnswered = answers[idx] !== undefined;
+            const isCorrect = answers[idx] === q.correctIndex;
+            const isActive = activeJumpIdx === idx;
+            let cls =
+              'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 bg-slate-50 dark:bg-slate-800/60';
+            if (submitted) {
+              cls = isCorrect
+                ? 'border-emerald-500/70 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300'
+                : 'border-red-500/70 bg-red-50 dark:bg-red-950/40 text-red-700 dark:text-red-300';
+            } else if (isAnswered) {
+              cls = 'border-blue-500 bg-blue-600 text-white';
+            }
+            return (
+              <button
+                key={q.id}
+                type="button"
+                onClick={() => jumpToQuestion(idx)}
+                className={`w-7 h-7 rounded text-[11px] font-mono font-semibold border transition-colors ${cls} ${
+                  isActive ? 'ring-2 ring-blue-400' : ''
+                }`}
+                title={`Jump to Question ${idx + 1}`}
+              >
+                {idx + 1}
+              </button>
+            );
+          })}
         </div>
       </div>
 
+      {/* Submit Review & Confirmation Modal */}
+      {confirmSubmitOpen && !submitted && (
+        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
+          <div className="w-full max-w-lg rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 space-y-4">
+            <h2 className="text-lg font-bold text-slate-900 dark:text-slate-100">
+              Review Exam Before Final Submission
+            </h2>
+            <div className="grid grid-cols-2 gap-3 text-xs">
+              <div className="p-3 rounded-lg bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-800">
+                <div className="text-slate-500">Answered</div>
+                <div className="text-lg font-bold font-mono text-emerald-600 dark:text-emerald-400 mt-0.5">
+                  {examQuestions.length - unansweredIndices.length} / {examQuestions.length}
+                </div>
+              </div>
+              <div className="p-3 rounded-lg bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-800">
+                <div className="text-slate-500">Unanswered</div>
+                <div className={`text-lg font-bold font-mono mt-0.5 ${unansweredIndices.length > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-slate-900 dark:text-slate-100'}`}>
+                  {unansweredIndices.length}
+                </div>
+              </div>
+            </div>
+
+            {unansweredIndices.length > 0 && (
+              <div className="space-y-2">
+                <p className="text-xs font-medium text-amber-700 dark:text-amber-300">
+                  Unanswered questions (click any number to jump back):
+                </p>
+                <div className="flex flex-wrap gap-1.5 max-h-28 overflow-y-auto">
+                  {unansweredIndices.map((idx) => (
+                    <button
+                      key={idx}
+                      type="button"
+                      onClick={() => {
+                        setConfirmSubmitOpen(false);
+                        jumpToQuestion(idx);
+                      }}
+                      className="px-2.5 py-1 rounded border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/30 text-xs font-mono font-semibold text-amber-800 dark:text-amber-200"
+                    >
+                      Q{idx + 1}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-200 dark:border-slate-800">
+              <button
+                type="button"
+                onClick={() => setConfirmSubmitOpen(false)}
+                className="px-4 py-2 rounded-lg border border-slate-300 dark:border-slate-700 text-xs font-medium"
+              >
+                Return to Exam
+              </button>
+              <button
+                type="button"
+                onClick={() => submitExam(examQuestions, answers, secondsLeft)}
+                className="px-4 py-2 rounded-lg bg-blue-700 hover:bg-blue-800 text-white text-xs font-medium"
+              >
+                Confirm & Grade Exam
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {submitted && (
-        <div className="rounded-xl border border-blue-200 dark:border-blue-900 bg-white dark:bg-slate-900 p-6 space-y-3">
-          <h2 className="text-lg font-bold text-slate-900 dark:text-slate-100">
-            Examination Score: {totalScore} / {examQuestions.length} ({Math.round((totalScore / examQuestions.length) * 100)}%)
-          </h2>
-          <p className="text-xs text-slate-600 dark:text-slate-400">
-            Incorrect answers have been automatically added to your Mistake Notebook (when signed in). Full explanations are unlocked below.
-          </p>
+        <div className="rounded-xl border border-blue-200 dark:border-blue-900 bg-white dark:bg-slate-900 p-6 space-y-4">
+          <div className="space-y-1">
+            <h2 className="text-lg font-bold text-slate-900 dark:text-slate-100">
+              Examination Score: {totalScore} / {examQuestions.length} ({Math.round((totalScore / examQuestions.length) * 100)}%)
+            </h2>
+            <p className="text-xs text-slate-600 dark:text-slate-400">
+              Incorrect answers have been automatically added to your Mistake Notebook (when signed in). Full explanations are unlocked below.
+            </p>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
+            {topicBreakdownEntries.map(([topicTitle, st]) => {
+              const pct = Math.round((st.correct / st.total) * 100);
+              return (
+                <div key={topicTitle} className="p-3 rounded-lg bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-800 text-xs">
+                  <div className="font-semibold text-slate-900 dark:text-slate-100 truncate">{topicTitle}</div>
+                  <div className="font-mono text-slate-600 dark:text-slate-400 mt-0.5 tabular-nums">
+                    {st.correct}/{st.total} correct ({pct}%)
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         </div>
       )}
 
@@ -750,7 +933,11 @@ export function MockExamPage({
           const chosen = answers[idx];
           const isOk = chosen === q.correctIndex;
           return (
-            <div key={q.id} className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 space-y-3">
+            <div
+              key={q.id}
+              id={`exam-q-${idx}`}
+              className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 space-y-3"
+            >
               <div className="flex items-start justify-between gap-2">
                 <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">
                   {idx + 1}. <MathText text={q.question} />

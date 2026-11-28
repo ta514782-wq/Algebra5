@@ -14,6 +14,7 @@ import { verifyLagrangeTheorem } from '../core/lagrangeEngine.ts';
 import { analyzeNormality } from '../core/normalityEngine.ts';
 import { calculateNormalizer } from '../core/normalizerEngine.ts';
 import { buildQuotientGroup } from '../core/quotientEngine.ts';
+import { buildSubgroupLattice } from '../core/latticeEngine.ts';
 import { FirstIsomorphismPanel } from '../components/FirstIsomorphismPanel.tsx';
 import { DihedralPolygonVisualizer, PermutationActionVisualizer } from '../components/GeometryVisuals.tsx';
 import { GroupComparisonPanel } from '../components/GroupComparisonPanel.tsx';
@@ -38,6 +39,7 @@ import { quotientToLatex } from '../utils/latexExport.ts';
 interface LabProps {
   mode:
     | 'group-explorer'
+    | 'subgroups'
     | 'cosets'
     | 'lagrange'
     | 'normality'
@@ -94,6 +96,14 @@ export function ComputationalLabPage({
           onSubsetChange={onSubsetChange}
           activeOp={activeOp}
           onActiveOpChange={setActiveOp}
+        />
+      )}
+      {mode === 'subgroups' && (
+        <SubgroupFinderPanel
+          group={group}
+          selectedSubset={selectedSubset}
+          onSubsetChange={onSubsetChange}
+          onNavigate={onNavigate}
         />
       )}
       {mode === 'cosets' && <CosetVisualizerPanel group={group} selectedSubset={selectedSubset} />}
@@ -760,9 +770,236 @@ function GroupExplorerPanel({
   );
 }
 
+function SubgroupFinderPanel({
+  group,
+  selectedSubset,
+  onSubsetChange,
+  onNavigate,
+}: {
+  group: FiniteGroup;
+  selectedSubset: number[];
+  onSubsetChange: (s: number[]) => void;
+  onNavigate?: (page: string) => void;
+}) {
+  const [filterMode, setFilterMode] = useState<'all' | 'normal' | 'cyclic'>('all');
+  const validation = useMemo(() => validateSubgroup(group, selectedSubset), [group, selectedSubset]);
+  const lattice = useMemo(() => buildSubgroupLattice(group), [group]);
+
+  const filteredNodes = useMemo(() => {
+    return lattice.nodes.filter((n) => {
+      if (filterMode === 'normal') return n.isNormal;
+      if (filterMode === 'cyclic') return n.isCyclic;
+      return true;
+    });
+  }, [lattice.nodes, filterMode]);
+
+  const activeKey = [...new Set(selectedSubset)].sort((a, b) => a - b).join(',');
+
+  return (
+    <div className="space-y-6">
+      {/* Candidate Subgroup Criterion Checker */}
+      <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 space-y-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h1 className="text-xl font-bold text-slate-900 dark:text-slate-100">
+              Subgroup Finder & Validator
+            </h1>
+            <p className="text-xs text-slate-600 dark:text-slate-400 mt-0.5">
+              Test any custom subset <MathText text="S ⊆ G" /> against the three subgroup axioms (identity, closure, inverses), generate <MathText text="⟨S⟩" />, or browse every subgroup of <MathText text={group.name} />.
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            {!validation.isSubgroup && selectedSubset.length > 0 && (
+              <button
+                type="button"
+                onClick={() => onSubsetChange(generateSubgroupFromElements(group, selectedSubset))}
+                className="px-3 py-1.5 rounded-lg bg-blue-700 hover:bg-blue-800 text-white text-xs font-medium whitespace-nowrap shrink-0"
+              >
+                Generate Closure <MathText text="⟨S⟩" />
+              </button>
+            )}
+            <div
+              className={`px-3 py-1.5 rounded-lg border text-xs font-semibold inline-flex items-center gap-1.5 ${
+                validation.isSubgroup
+                  ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-300'
+                  : 'bg-red-50 dark:bg-red-950/40 border-red-200 dark:border-red-800 text-red-800 dark:text-red-300'
+              }`}
+            >
+              {validation.isSubgroup ? <CheckCircle2 className="w-4 h-4" /> : <XCircle className="w-4 h-4" />}
+              {validation.isSubgroup ? `Valid Subgroup (|H| = ${validation.order})` : 'Not a Subgroup'}
+            </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+          {[
+            { label: `Identity Element (${group.elements[group.identityIndex]})`, ok: validation.hasIdentity },
+            { label: 'Closure under Group Operation', ok: validation.isClosed },
+            { label: 'Closed under Inverses', ok: validation.hasInverses },
+          ].map((crit) => (
+            <div
+              key={crit.label}
+              className="p-3 rounded-lg bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-800 flex items-center justify-between gap-2"
+            >
+              <span className="text-slate-700 dark:text-slate-300 font-medium">{crit.label}</span>
+              <span className={`font-semibold inline-flex items-center gap-1 shrink-0 ${crit.ok ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>
+                {crit.ok ? <CheckCircle2 className="w-3.5 h-3.5" /> : <XCircle className="w-3.5 h-3.5" />}
+                {crit.ok ? 'Holds' : 'Fails'}
+              </span>
+            </div>
+          ))}
+        </div>
+
+        {!validation.isSubgroup && validation.reasons.length > 0 && (
+          <div className="p-3 rounded-lg bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900 text-xs text-red-800 dark:text-red-300 space-y-1">
+            {validation.reasons.map((r, i) => (
+              <div key={i}>
+                <MathText text={r} />
+              </div>
+            ))}
+          </div>
+        )}
+
+        {validation.isSubgroup && onNavigate && (
+          <div className="flex flex-wrap gap-2 pt-1">
+            <button
+              type="button"
+              onClick={() => onNavigate('cosets')}
+              className="px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 hover:border-blue-500 text-xs font-medium text-slate-700 dark:text-slate-300"
+            >
+              View Cosets of H →
+            </button>
+            <button
+              type="button"
+              onClick={() => onNavigate('normality')}
+              className="px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 hover:border-blue-500 text-xs font-medium text-slate-700 dark:text-slate-300"
+            >
+              Test Normality of H →
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* Exhaustive Subgroup Catalog */}
+      <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="text-base font-semibold text-slate-900 dark:text-slate-100">
+              Subgroups of <MathText text={group.name} /> ({filteredNodes.length} shown · {lattice.exhaustive ? 'Exhaustive' : 'Cataloged'})
+            </h2>
+            <p className="text-xs text-slate-500 dark:text-slate-400">
+              Click any subgroup row to load it as the active selection <MathText text="H" /> across all AlgebraLab simulators.
+            </p>
+          </div>
+          <div className="flex items-center gap-1 p-1 rounded-lg bg-slate-100 dark:bg-slate-800">
+            {(
+              [
+                ['all', `All (${lattice.nodes.length})`],
+                ['normal', `Normal (${lattice.nodes.filter((n) => n.isNormal).length})`],
+                ['cyclic', `Cyclic (${lattice.nodes.filter((n) => n.isCyclic).length})`],
+              ] as const
+            ).map(([key, label]) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() => setFilterMode(key)}
+                className={`px-3 py-1 rounded-md text-xs font-medium whitespace-nowrap shrink-0 ${
+                  filterMode === key
+                    ? 'bg-white dark:bg-slate-900 shadow-xs text-slate-900 dark:text-slate-100'
+                    : 'text-slate-500 dark:text-slate-400'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs border-collapse tabular-nums">
+            <thead>
+              <tr className="border-b border-slate-200 dark:border-slate-800 text-slate-500">
+                <th className="py-2 px-2 text-left">Subgroup / Generators</th>
+                <th className="py-2 px-2 text-left">Elements</th>
+                <th className="py-2 px-2 text-right">Order <MathText text="|H|" /></th>
+                <th className="py-2 px-2 text-right">Index <MathText text="[G:H]" /></th>
+                <th className="py-2 px-2 text-left">Structure</th>
+                <th className="py-2 px-2 text-right">Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredNodes.map((node) => {
+                const isSelected = node.elements.join(',') === activeKey;
+                return (
+                  <tr
+                    key={node.id}
+                    className={`border-b border-slate-100 dark:border-slate-800/60 ${
+                      isSelected ? 'bg-blue-50/60 dark:bg-blue-950/30' : 'hover:bg-slate-50 dark:hover:bg-slate-800/40'
+                    }`}
+                  >
+                    <td className="py-2 px-2 font-semibold text-slate-900 dark:text-slate-100">
+                      <MathText text={node.label} />
+                    </td>
+                    <td className="py-2 px-2 text-slate-600 dark:text-slate-400 max-w-xs truncate">
+                      <MathText text={`{${node.elementLabels.join(', ')}}`} />
+                    </td>
+                    <td className="py-2 px-2 text-right font-mono">{node.order}</td>
+                    <td className="py-2 px-2 text-right font-mono">{node.index}</td>
+                    <td className="py-2 px-2 text-slate-600 dark:text-slate-300">
+                      {node.isNormal ? 'Normal' : 'Non-normal'} · {node.isCyclic ? 'Cyclic' : 'Non-cyclic'}
+                    </td>
+                    <td className="py-2 px-2 text-right">
+                      <button
+                        type="button"
+                        onClick={() => onSubsetChange(node.elements)}
+                        className={`px-2.5 py-1 rounded text-[11px] font-medium whitespace-nowrap ${
+                          isSelected
+                            ? 'bg-blue-700 text-white'
+                            : 'border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:border-blue-500'
+                        }`}
+                      >
+                        {isSelected ? 'Active H' : 'Load H'}
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <SubgroupLatticeD3
+        group={group}
+        activeSubgroup={selectedSubset}
+        onSelectSubgroup={onSubsetChange}
+      />
+    </div>
+  );
+}
+
 function CosetVisualizerPanel({ group, selectedSubset }: { group: FiniteGroup; selectedSubset: number[] }) {
   const [visualView, setVisualView] = useState<'partition' | 'blocked-table'>('partition');
+  const [testElementX, setTestElementX] = useState<number>(group.order > 1 ? 1 : 0);
+  const [testRepG, setTestRepG] = useState<number>(group.identityIndex);
   const res = analyzeCosets(group, selectedSubset);
+
+  const safeX = testElementX < group.order ? testElementX : 0;
+  const safeG = testRepG < group.order ? testRepG : group.identityIndex;
+  const gInv = group.inverses[safeG];
+  const gInvX = group.table[gInv][safeX];
+  const xGInv = group.table[safeX][gInv];
+  const subsetSet = new Set(selectedSubset);
+  const inLeftCoset = subsetSet.has(gInvX);
+  const inRightCoset = subsetSet.has(xGInv);
+  const opLatex =
+    group.operationSymbol === '∘'
+      ? '\\circ'
+      : group.operationSymbol === '+'
+        ? '+'
+        : group.operationSymbol === '*'
+          ? '*'
+          : '\\cdot';
 
   if (!res.valid) {
     return (
@@ -891,6 +1128,85 @@ function CosetVisualizerPanel({ group, selectedSubset }: { group: FiniteGroup; s
               ))}
             </div>
           )}
+        </div>
+      </div>
+      {/* Interactive Coset Membership Tester */}
+      <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h3 className="text-base font-semibold text-slate-900 dark:text-slate-100">
+              Interactive Coset Membership Tester
+            </h3>
+            <p className="text-xs text-slate-600 dark:text-slate-400">
+              Pick any element <MathText text="x ∈ G" /> and representative <MathText text="g ∈ G" /> to verify <MathText text="x ∈ gH ⇔ g⁻¹x ∈ H" /> and <MathText text="x ∈ Hg ⇔ xg⁻¹ ∈ H" />.
+            </p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-end">
+          <div className="md:col-span-3">
+            <label className="block text-[11px] font-medium text-slate-500 dark:text-slate-400 mb-1">
+              Test Element <MathText text="x" />
+            </label>
+            <select
+              aria-label="Test element x"
+              value={safeX}
+              onChange={(e) => setTestElementX(Number(e.target.value))}
+              className="w-full h-9 px-2.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs text-slate-900 dark:text-slate-100"
+            >
+              {group.elements.map((el, i) => (
+                <option key={`x-${i}`} value={i}>
+                  {el}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="md:col-span-3">
+            <label className="block text-[11px] font-medium text-slate-500 dark:text-slate-400 mb-1">
+              Coset Representative <MathText text="g" />
+            </label>
+            <select
+              aria-label="Coset representative g"
+              value={safeG}
+              onChange={(e) => setTestRepG(Number(e.target.value))}
+              className="w-full h-9 px-2.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs text-slate-900 dark:text-slate-100"
+            >
+              {group.elements.map((el, i) => (
+                <option key={`rep-${i}`} value={i}>
+                  {el}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="md:col-span-3 p-3 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50 text-xs space-y-1">
+            <div className="font-semibold text-slate-700 dark:text-slate-300">
+              Left Coset Criterion
+            </div>
+            <div className="text-slate-600 dark:text-slate-400">
+              <MathFormula
+                latex={`${group.latexElements[safeG]}^{-1} ${opLatex} ${group.latexElements[safeX]} = ${group.latexElements[gInvX]}`}
+              />
+            </div>
+            <div className={`font-semibold ${inLeftCoset ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>
+              <MathText text={inLeftCoset ? `${group.elements[safeX]} ∈ ${group.elements[safeG]}H (${group.elements[gInvX]} ∈ H)` : `${group.elements[safeX]} ∉ ${group.elements[safeG]}H (${group.elements[gInvX]} ∉ H)`} />
+            </div>
+          </div>
+
+          <div className="md:col-span-3 p-3 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50 text-xs space-y-1">
+            <div className="font-semibold text-slate-700 dark:text-slate-300">
+              Right Coset Criterion
+            </div>
+            <div className="text-slate-600 dark:text-slate-400">
+              <MathFormula
+                latex={`${group.latexElements[safeX]} ${opLatex} ${group.latexElements[safeG]}^{-1} = ${group.latexElements[xGInv]}`}
+              />
+            </div>
+            <div className={`font-semibold ${inRightCoset ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>
+              <MathText text={inRightCoset ? `${group.elements[safeX]} ∈ H${group.elements[safeG]} (${group.elements[xGInv]} ∈ H)` : `${group.elements[safeX]} ∉ H${group.elements[safeG]} (${group.elements[xGInv]} ∉ H)`} />
+            </div>
+          </div>
         </div>
       </div>
     </div>

@@ -1,5 +1,5 @@
-import { CheckCircle2, Download, GitBranch, Grid3X3, Play, RefreshCw, RotateCcw, Search, ShieldCheck } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { Bookmark, CheckCircle2, Download, GitBranch, Grid3X3, Play, RefreshCw, RotateCcw, Search, ShieldCheck } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
 import { convertUnicodeMathToLatex, MathFormula, MathText } from '../components/MathFormula.tsx';
 import { VisualCheatSheetD3 } from '../components/VisualCheatSheetD3.tsx';
 import {
@@ -208,15 +208,81 @@ export function MistakeNotebookPage({
   );
 }
 
-export function FormulaLibraryPage() {
-  const [query, setQuery] = useState('');
-  const [activeTab, setActiveTab] = useState<'formulas' | 'cheatsheet'>('formulas');
-  const filtered = FORMULA_LIBRARY.filter(
-    (f) =>
+const REF_BOOKMARK_KEY = 'algebralab.refBookmarks.v1';
+
+function loadRefBookmarks(): Set<string> {
+  if (typeof window === 'undefined') return new Set();
+  try {
+    const raw = window.localStorage.getItem(REF_BOOKMARK_KEY);
+    if (!raw) return new Set();
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? new Set(parsed.filter((x) => typeof x === 'string')) : new Set();
+  } catch {
+    return new Set();
+  }
+}
+
+function saveRefBookmarks(set: Set<string>) {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(REF_BOOKMARK_KEY, JSON.stringify([...set]));
+  } catch {
+    // ignore storage quota errors
+  }
+}
+
+export function FormulaLibraryPage({
+  initialQuery,
+  initialTab,
+  searchNonce,
+  onTabChange,
+}: {
+  initialQuery?: string;
+  initialTab?: 'formulas' | 'cheatsheet';
+  searchNonce?: number;
+  onTabChange?: (tab: 'formulas' | 'cheatsheet') => void;
+}) {
+  const [query, setQuery] = useState(initialQuery ?? '');
+  const [topicFilter, setTopicFilter] = useState<string>('all');
+  const [bookmarkedOnly, setBookmarkedOnly] = useState(false);
+  const [bookmarks, setBookmarks] = useState<Set<string>>(() => loadRefBookmarks());
+  const [activeTab, setActiveTab] = useState<'formulas' | 'cheatsheet'>(initialTab ?? 'formulas');
+
+  useEffect(() => {
+    if (initialQuery !== undefined) {
+      setQuery(initialQuery);
+      setTopicFilter('all');
+      setBookmarkedOnly(false);
+    }
+    if (initialTab) {
+      setActiveTab(initialTab);
+    }
+  }, [initialQuery, initialTab, searchNonce]);
+
+  const formulaTopics = useMemo(
+    () => Array.from(new Set(FORMULA_LIBRARY.map((f) => f.topic))),
+    []
+  );
+
+  const toggleBookmark = (key: string) => {
+    setBookmarks((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      saveRefBookmarks(next);
+      return next;
+    });
+  };
+
+  const filtered = FORMULA_LIBRARY.filter((f) => {
+    if (topicFilter !== 'all' && f.topic !== topicFilter) return false;
+    if (bookmarkedOnly && !bookmarks.has(`f:${f.id}`)) return false;
+    return (
       f.name.toLowerCase().includes(query.toLowerCase()) ||
       f.topic.toLowerCase().includes(query.toLowerCase()) ||
       f.explanation.toLowerCase().includes(query.toLowerCase())
-  );
+    );
+  });
 
   return (
     <div className="space-y-6">
@@ -226,7 +292,7 @@ export function FormulaLibraryPage() {
             Formula Library & Visual Cheat Sheet
           </h1>
           <p className="text-xs text-slate-500 dark:text-slate-400">
-            Searchable theorems, identities, and interactive D3.js group-structure diagrams
+            Searchable theorems, topic filters, saved bookmarks, and interactive D3.js group-structure diagrams
           </p>
         </div>
 
@@ -234,7 +300,10 @@ export function FormulaLibraryPage() {
           <div className="flex items-center gap-1 p-1 rounded-lg bg-slate-100 dark:bg-slate-800">
             <button
               type="button"
-              onClick={() => setActiveTab('formulas')}
+              onClick={() => {
+                setActiveTab('formulas');
+                onTabChange?.('formulas');
+              }}
               className={`px-3 py-1.5 rounded-md text-xs font-medium inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors ${
                 activeTab === 'formulas'
                   ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 shadow-xs'
@@ -246,7 +315,10 @@ export function FormulaLibraryPage() {
             </button>
             <button
               type="button"
-              onClick={() => setActiveTab('cheatsheet')}
+              onClick={() => {
+                setActiveTab('cheatsheet');
+                onTabChange?.('cheatsheet');
+              }}
               className={`px-3 py-1.5 rounded-md text-xs font-medium inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors ${
                 activeTab === 'cheatsheet'
                   ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 shadow-xs'
@@ -257,9 +329,11 @@ export function FormulaLibraryPage() {
               Visual Cheat Sheet
             </button>
           </div>
+        </div>
 
-          {activeTab === 'formulas' && (
-            <div className="relative w-full sm:w-64">
+        {activeTab === 'formulas' && (
+          <div className="w-full flex flex-wrap items-center gap-2.5 pt-2 border-t border-slate-200 dark:border-slate-800">
+            <div className="relative flex-1 min-w-[200px]">
               <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
               <input
                 type="text"
@@ -269,41 +343,118 @@ export function FormulaLibraryPage() {
                 className="w-full h-9 pl-9 pr-3 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs"
               />
             </div>
-          )}
-        </div>
+            <select
+              aria-label="Filter formulas by topic"
+              value={topicFilter}
+              onChange={(e) => setTopicFilter(e.target.value)}
+              className="h-9 px-3 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs"
+            >
+              <option value="all">All Topics ({FORMULA_LIBRARY.length})</option>
+              {formulaTopics.map((tp) => (
+                <option key={tp} value={tp}>
+                  {tp}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              onClick={() => setBookmarkedOnly((b) => !b)}
+              className={`h-9 px-3 rounded-lg border text-xs font-medium inline-flex items-center gap-1.5 whitespace-nowrap ${
+                bookmarkedOnly
+                  ? 'border-amber-500 bg-amber-50 dark:bg-amber-950/30 text-amber-800 dark:text-amber-300'
+                  : 'border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300'
+              }`}
+            >
+              <Bookmark className="w-3.5 h-3.5" />
+              Bookmarked Only
+            </button>
+          </div>
+        )}
       </div>
 
       {activeTab === 'cheatsheet' ? (
         <VisualCheatSheetD3 />
+      ) : filtered.length === 0 ? (
+        <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-8 text-center text-sm text-slate-500">
+          No formulas match the current filter.
+        </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {filtered.map((f) => (
-            <div key={f.id} className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 space-y-2">
-              <div className="text-xs text-blue-700 dark:text-blue-400 font-medium">{f.topic}</div>
-              <div className="text-base font-semibold text-slate-900 dark:text-slate-100">{f.name}</div>
-              <div className="p-3 rounded-lg bg-slate-50 dark:bg-slate-800/60">
-                <MathFormula latex={f.latex} display />
+          {filtered.map((f) => {
+            const key = `f:${f.id}`;
+            const saved = bookmarks.has(key);
+            return (
+              <div key={f.id} className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 space-y-2">
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <div className="text-xs text-blue-700 dark:text-blue-400 font-medium">{f.topic}</div>
+                    <div className="text-base font-semibold text-slate-900 dark:text-slate-100">{f.name}</div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => toggleBookmark(key)}
+                    aria-label={saved ? `Remove bookmark for ${f.name}` : `Bookmark ${f.name}`}
+                    className={`p-1.5 rounded-lg border transition-colors ${
+                      saved
+                        ? 'border-amber-500 bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400'
+                        : 'border-slate-200 dark:border-slate-700 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'
+                    }`}
+                  >
+                    <Bookmark className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+                <div className="p-3 rounded-lg bg-slate-50 dark:bg-slate-800/60">
+                  <MathFormula latex={f.latex} display />
+                </div>
+                <p className="text-xs text-slate-600 dark:text-slate-400">
+                  <MathText text={f.explanation} />
+                </p>
               </div>
-              <p className="text-xs text-slate-600 dark:text-slate-400">
-                <MathText text={f.explanation} />
-              </p>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>
   );
 }
 
-export function GlossaryPage() {
-  const [query, setQuery] = useState('');
+export function GlossaryPage({
+  initialQuery,
+  searchNonce,
+}: {
+  initialQuery?: string;
+  searchNonce?: number;
+}) {
+  const [query, setQuery] = useState(initialQuery ?? '');
+  const [bookmarkedOnly, setBookmarkedOnly] = useState(false);
+  const [bookmarks, setBookmarks] = useState<Set<string>>(() => loadRefBookmarks());
+
+  useEffect(() => {
+    if (initialQuery !== undefined) {
+      setQuery(initialQuery);
+      setBookmarkedOnly(false);
+    }
+  }, [initialQuery, searchNonce]);
+
+  const toggleBookmark = (key: string) => {
+    setBookmarks((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      saveRefBookmarks(next);
+      return next;
+    });
+  };
+
   const sorted = [...GLOSSARY_ENTRIES]
     .sort((a, b) => a.term.localeCompare(b.term))
-    .filter(
-      (g) =>
+    .filter((g) => {
+      if (bookmarkedOnly && !bookmarks.has(`g:${g.term}`)) return false;
+      return (
         g.term.toLowerCase().includes(query.toLowerCase()) ||
         g.definition.toLowerCase().includes(query.toLowerCase())
-    );
+      );
+    });
 
   return (
     <div className="space-y-6">
@@ -313,42 +464,80 @@ export function GlossaryPage() {
             Abstract Algebra Glossary
           </h1>
           <p className="text-xs text-slate-500 dark:text-slate-400">
-            Alphabetical definitions, standard symbols, and concrete finite-group examples
+            Alphabetical definitions, standard symbols, bookmarks, and concrete finite-group examples
           </p>
         </div>
-        <div className="relative w-full sm:w-72">
-          <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
-          <input
-            type="text"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search glossary terms…"
-            className="w-full h-9 pl-9 pr-3 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs"
-          />
+        <div className="flex flex-wrap items-center gap-2.5 w-full sm:w-auto">
+          <div className="relative flex-1 sm:w-64">
+            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+            <input
+              type="text"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search glossary terms…"
+              className="w-full h-9 pl-9 pr-3 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs"
+            />
+          </div>
+          <button
+            type="button"
+            onClick={() => setBookmarkedOnly((b) => !b)}
+            className={`h-9 px-3 rounded-lg border text-xs font-medium inline-flex items-center gap-1.5 whitespace-nowrap ${
+              bookmarkedOnly
+                ? 'border-amber-500 bg-amber-50 dark:bg-amber-950/30 text-amber-800 dark:text-amber-300'
+                : 'border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300'
+            }`}
+          >
+            <Bookmark className="w-3.5 h-3.5" />
+            Bookmarked Only
+          </button>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {sorted.map((entry) => (
-          <div key={entry.term} className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 space-y-2">
-            <div className="flex items-center justify-between gap-2">
-              <h2 className="text-base font-bold text-slate-900 dark:text-slate-100">{entry.term}</h2>
-              {entry.symbol && (
-                <MathFormula
-                  latex={convertUnicodeMathToLatex(entry.symbol)}
-                  className="text-xs text-blue-700 dark:text-blue-400"
-                />
-              )}
-            </div>
-            <p className="text-xs text-slate-700 dark:text-slate-300 leading-relaxed">
-              <MathText text={entry.definition} />
-            </p>
-            <div className="pt-2 border-t border-slate-100 dark:border-slate-800 text-xs text-slate-500 dark:text-slate-400">
-              Example: <MathText text={entry.example} />
-            </div>
-          </div>
-        ))}
-      </div>
+      {sorted.length === 0 ? (
+        <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-8 text-center text-sm text-slate-500">
+          No glossary entries match the current filter.
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {sorted.map((entry) => {
+            const key = `g:${entry.term}`;
+            const saved = bookmarks.has(key);
+            return (
+              <div key={entry.term} className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <h2 className="text-base font-bold text-slate-900 dark:text-slate-100">{entry.term}</h2>
+                  <div className="flex items-center gap-2">
+                    {entry.symbol && (
+                      <MathFormula
+                        latex={convertUnicodeMathToLatex(entry.symbol)}
+                        className="text-xs text-blue-700 dark:text-blue-400"
+                      />
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => toggleBookmark(key)}
+                      aria-label={saved ? `Remove bookmark for ${entry.term}` : `Bookmark ${entry.term}`}
+                      className={`p-1 rounded-md border transition-colors ${
+                        saved
+                          ? 'border-amber-500 bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400'
+                          : 'border-slate-200 dark:border-slate-700 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'
+                      }`}
+                    >
+                      <Bookmark className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+                <p className="text-xs text-slate-700 dark:text-slate-300 leading-relaxed">
+                  <MathText text={entry.definition} />
+                </p>
+                <div className="pt-2 border-t border-slate-100 dark:border-slate-800 text-xs text-slate-500 dark:text-slate-400">
+                  Example: <MathText text={entry.example} />
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

@@ -26,6 +26,16 @@
   .tabular-nums {
     font-variant-numeric: tabular-nums;
   }
+
+  html.dark body {
+    background-color: #070B14;
+    color: #F1F5F9;
+  }
+
+  html:not(.dark) body {
+    background-color: #F8FAFC;
+    color: #0F172A;
+  }
 }
 
 /* Smooth focus ring and reduced motion compliance */

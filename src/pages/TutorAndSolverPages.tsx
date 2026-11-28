@@ -20,6 +20,11 @@ import { FiniteGroup } from '../core/groupTypes.ts';
 import { validateSubgroup } from '../core/groupValidation.ts';
 import { analyzeNormality } from '../core/normalityEngine.ts';
 import { calculateNormalizer } from '../core/normalizerEngine.ts';
+import {
+  PROOF_THEOREM_CATALOG,
+  ProofTheoremId,
+  buildStructuredProof,
+} from '../core/proofAssistantEngine.ts';
 import { solveGroupProblem, SolverProblemType } from '../core/solverEngine.ts';
 import { buildVerifiedEngineTutorReply } from '../core/tutorEngineFallback.ts';
 import { LEARNING_TOPICS } from '../data/topics.ts';
@@ -114,6 +119,20 @@ export function AiTutorPage({ group, selectedSubset, geminiConfigured, onOpenSol
     });
 
     if (!customPrompt) setInput('');
+    if (typeof window !== 'undefined' && window.location.protocol === 'file:') {
+      const engineReply = buildVerifiedEngineTutorReply(q, topic, mode, group, selectedSubset);
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `eng-${Date.now()}`,
+          role: 'assistant',
+          text: engineReply,
+          sourceLabel: 'Verified Deterministic Algebra Engine (Offline HTML Mode)',
+        },
+      ]);
+      return;
+    }
+
     setLoading(true);
 
     const controller = new AbortController();
@@ -269,6 +288,7 @@ export function AiTutorPage({ group, selectedSubset, geminiConfigured, onOpenSol
             'Explain why A₄ has no subgroup of order 6',
             'Contrast normalizer N_G(H) vs centralizer C_G(H)',
             'Why is D₄/⟨r²⟩ isomorphic to V₄?',
+            'Generate a practice question with step-by-step solution on my active group',
           ].map((preset) => (
             <button
               key={preset}
@@ -280,6 +300,18 @@ export function AiTutorPage({ group, selectedSubset, geminiConfigured, onOpenSol
               <MathText text={preset} />
             </button>
           ))}
+          <button
+            type="button"
+            disabled={loading}
+            onClick={() =>
+              setInput(
+                `Check my attempted proof for mistakes on ${group.name}: [paste your steps here]`
+              )
+            }
+            className="px-3 py-1.5 rounded-lg border border-blue-200 dark:border-blue-800/80 bg-blue-50/70 dark:bg-blue-950/30 hover:border-blue-500 disabled:opacity-50 text-xs text-blue-800 dark:text-blue-200 transition-colors text-left"
+          >
+            Check mistakes in my solution
+          </button>
         </div>
       </div>
 
@@ -542,6 +574,174 @@ export function StepByStepSolverPage({
           </div>
           <div className="text-xs text-blue-700 dark:text-blue-300">
             <MathText text={solution.verificationSummary} />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export function ProofAssistantPage({
+  group,
+  selectedSubset,
+  onGroupChange,
+  onSubsetChange,
+  initialTheoremId,
+  theoremNonce,
+  onTheoremChange,
+}: {
+  group: FiniteGroup;
+  selectedSubset: number[];
+  onGroupChange: (g: FiniteGroup, initialSubset: number[]) => void;
+  onSubsetChange: (indices: number[]) => void;
+  initialTheoremId?: ProofTheoremId;
+  theoremNonce?: number;
+  onTheoremChange?: (theoremId: ProofTheoremId) => void;
+}) {
+  const [theoremId, setTheoremId] = useState<ProofTheoremId>(initialTheoremId ?? 'lagrange');
+
+  useEffect(() => {
+    if (initialTheoremId) {
+      setTheoremId(initialTheoremId);
+    }
+  }, [initialTheoremId, theoremNonce]);
+
+  const proof = useMemo(
+    () => buildStructuredProof(theoremId, group, selectedSubset),
+    [theoremId, group, selectedSubset]
+  );
+
+  return (
+    <div className="space-y-6">
+      <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 space-y-3">
+        <div>
+          <p className="text-xs font-medium text-blue-700 dark:text-blue-400">
+            Structured Theorem Prover & Live Group Instantiation
+          </p>
+          <h1 className="text-xl font-bold text-slate-900 dark:text-slate-100 mt-0.5">
+            Mathematical Proof Assistant
+          </h1>
+          <p className="text-xs text-slate-600 dark:text-slate-400 mt-1">
+            Select a core Abstract Algebra theorem to inspect its formal Given Information, Required Conclusion, Proof Strategy, and Step-by-Step Argument — verified live against your active group and subgroup.
+          </p>
+        </div>
+
+        <div className="flex flex-wrap gap-1.5 pt-1">
+          {PROOF_THEOREM_CATALOG.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              onClick={() => {
+                setTheoremId(item.id);
+                onTheoremChange?.(item.id);
+              }}
+              className={`px-3 py-1.5 rounded-lg border text-xs font-medium whitespace-nowrap shrink-0 transition-colors ${
+                theoremId === item.id
+                  ? 'bg-blue-700 text-white border-blue-700'
+                  : 'bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:border-blue-500'
+              }`}
+            >
+              {item.title}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <GroupSelectorBar
+        group={group}
+        selectedSubset={selectedSubset}
+        onGroupChange={onGroupChange}
+        onSubsetChange={onSubsetChange}
+        showSubsetControls={theoremId !== 'class-equation' && theoremId !== 'sylow-first' && theoremId !== 'ftfgag'}
+      />
+
+      <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 space-y-5">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="space-y-1">
+            <div className="text-xs font-medium text-blue-700 dark:text-blue-400">
+              Theorem · {proof.topicTag}
+            </div>
+            <h2 className="text-lg font-bold text-slate-900 dark:text-slate-100">
+              {proof.title}
+            </h2>
+            <p className="text-sm text-slate-700 dark:text-slate-300">
+              <MathText text={proof.theoremStatement} />
+            </p>
+          </div>
+          <div
+            className={`px-3 py-1.5 rounded-lg border text-xs font-semibold inline-flex items-center gap-1.5 shrink-0 ${
+              proof.liveInstantiation.applicable
+                ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-300'
+                : 'bg-amber-50 dark:bg-amber-950/40 border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-300'
+            }`}
+          >
+            {proof.liveInstantiation.applicable ? (
+              <CheckCircle2 className="w-4 h-4 shrink-0" />
+            ) : (
+              <AlertTriangle className="w-4 h-4 shrink-0" />
+            )}
+            <span>{proof.liveInstantiation.statusLabel}</span>
+          </div>
+        </div>
+
+        <div className="p-3.5 rounded-lg bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-800">
+          <MathFormula latex={proof.formulaLatex} display />
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
+          <div className="p-4 rounded-lg bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-800 space-y-1.5">
+            <div className="font-semibold text-slate-700 dark:text-slate-300">Given Information</div>
+            {proof.givenInfo.map((g, i) => (
+              <div key={i} className="text-slate-600 dark:text-slate-400 leading-relaxed">
+                <MathText text={g} />
+              </div>
+            ))}
+          </div>
+          <div className="p-4 rounded-lg bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-800 space-y-1.5">
+            <div className="font-semibold text-slate-700 dark:text-slate-300">Required Conclusion</div>
+            <div className="text-slate-600 dark:text-slate-400 leading-relaxed">
+              <MathText text={proof.requiredConclusion} />
+            </div>
+          </div>
+          <div className="p-4 rounded-lg bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-800 space-y-1.5">
+            <div className="font-semibold text-slate-700 dark:text-slate-300">Proof Strategy</div>
+            <div className="text-slate-600 dark:text-slate-400 leading-relaxed">
+              <MathText text={proof.proofStrategy} />
+            </div>
+          </div>
+        </div>
+
+        <div className="space-y-2">
+          <div className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+            Step-by-Step Mathematical Argument
+          </div>
+          {proof.steps.map((step, i) => (
+            <div
+              key={i}
+              className="p-3.5 rounded-lg bg-slate-50 dark:bg-slate-800/40 border border-slate-200/80 dark:border-slate-800 text-sm text-slate-800 dark:text-slate-200 leading-relaxed"
+            >
+              <MathText text={step} />
+            </div>
+          ))}
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <div className="p-4 rounded-lg bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-900 space-y-1">
+            <div className="text-xs font-semibold text-blue-800 dark:text-blue-300">Final Conclusion (Q.E.D.)</div>
+            <div className="text-sm font-medium text-blue-900 dark:text-blue-100 leading-relaxed">
+              <MathText text={proof.finalConclusion} />
+            </div>
+          </div>
+
+          <div className="p-4 rounded-lg bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-800 space-y-1.5">
+            <div className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+              Live Engine Instantiation on <MathText text={group.name} />
+            </div>
+            {proof.liveInstantiation.details.map((line, i) => (
+              <div key={i} className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
+                <MathText text={line} />
+              </div>
+            ))}
           </div>
         </div>
       </div>

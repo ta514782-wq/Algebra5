@@ -97,6 +97,19 @@ db.exec(`
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
 
+  CREATE TABLE IF NOT EXISTS custom_modules (
+    id TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    subtitle TEXT NOT NULL DEFAULT '',
+    estimated_minutes INTEGER NOT NULL DEFAULT 30,
+    introduction TEXT NOT NULL,
+    objectives_json TEXT NOT NULL DEFAULT '[]',
+    common_mistakes_json TEXT NOT NULL DEFAULT '[]',
+    revision_notes_json TEXT NOT NULL DEFAULT '[]',
+    author_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
   CREATE TABLE IF NOT EXISTS custom_questions (
     id TEXT PRIMARY KEY,
     topic_id TEXT NOT NULL,
